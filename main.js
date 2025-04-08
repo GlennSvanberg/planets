@@ -21,13 +21,13 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(1, 1, 1);
 scene.add(directionalLight);
 
-// Add a point light for additional planet illumination
-const pointLight = new THREE.PointLight(0x0088ff, 1.5, 100);
+// Add a point light for additional planet illumination with warm color
+const pointLight = new THREE.PointLight(0xff7700, 1.5, 100); // Orange light
 pointLight.position.set(3, 2, 3);
 scene.add(pointLight);
 
-// Add a second blue point light from another angle
-const pointLight2 = new THREE.PointLight(0x0055ff, 1, 100);
+// Add a second red-orange point light from another angle
+const pointLight2 = new THREE.PointLight(0xff3300, 1, 100); // Red-orange light
 pointLight2.position.set(-3, -1, 2);
 scene.add(pointLight2);
 
@@ -248,17 +248,110 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Schedule the labels to appear
+createLabel('SKU', 0, 1.0, 5000); // First label after 5 seconds, positioned higher
+createLabel('köpbar produkt', 4, 1.0, 7000); // Second label after 7 seconds, positioned higher
+
+// Create energy flow particles
+function createEnergyFlow() {
+  // Create a particle system for the energy flow
+  const particleCount = 2000; // Much higher resolution
+  const energyParticles = new THREE.BufferGeometry();
+  
+  // Create arrays for particle properties
+  const positions = new Float32Array(particleCount * 3);
+  const sizes = new Float32Array(particleCount);
+  const colors = new Float32Array(particleCount * 3);
+  const phases = new Float32Array(particleCount);
+  const speeds = new Float32Array(particleCount); // Different speeds for particles
+  
+  // Position particles initially at the first planet
+  const firstPlanet = objects[0];
+  const lastPlanet = objects[objects.length - 1];
+  const totalDistance = lastPlanet.position.x - firstPlanet.position.x;
+  
+  for (let i = 0; i < particleCount; i++) {
+    // Distribute particles along the entire path evenly
+    const progress = Math.random(); // Full path distribution
+    
+    // Calculate position along the path between planets
+    positions[i * 3] = firstPlanet.position.x + progress * totalDistance;
+    
+    // Add some vertical variation
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 0.15;
+    
+    // Add some depth variation
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 0.15;
+    
+    // Random size for each particle with more small particles
+    sizes[i] = Math.pow(Math.random(), 2) * 0.03 + 0.01;
+    
+    // Warm fire/sun colors with variation
+    const colorVar = Math.random();
+    if (colorVar < 0.5) {
+      // Yellow-orange core
+      colors[i * 3] = 0.9 + Math.random() * 0.1;     // R: bright red
+      colors[i * 3 + 1] = 0.6 + Math.random() * 0.3; // G: medium-high green for yellow
+      colors[i * 3 + 2] = 0.1 + Math.random() * 0.2; // B: low blue
+    } else if (colorVar < 0.8) {
+      // Orange-red parts
+      colors[i * 3] = 0.8 + Math.random() * 0.2;     // R: bright red
+      colors[i * 3 + 1] = 0.3 + Math.random() * 0.3; // G: medium green for orange
+      colors[i * 3 + 2] = 0.0 + Math.random() * 0.1; // B: very low blue
+    } else {
+      // Red edges
+      colors[i * 3] = 0.7 + Math.random() * 0.3;     // R: bright red
+      colors[i * 3 + 1] = 0.1 + Math.random() * 0.2; // G: low green
+      colors[i * 3 + 2] = 0.0 + Math.random() * 0.05; // B: almost no blue
+    }
+    
+    // Random phase offset for animation
+    phases[i] = Math.random() * Math.PI * 2;
+    
+    // Random speed variation for more natural flow
+    speeds[i] = 0.7 + Math.random() * 0.6; // 0.7-1.3 speed multiplier
+  }
+  
+  // Add attributes to the geometry
+  energyParticles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  energyParticles.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+  energyParticles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  
+  // Store phases and speeds for animation
+  energyParticles.userData = { 
+    phases: phases,
+    speeds: speeds,
+    flowStartTime: Date.now()
+  };
+  
+  // Create shader material for particles
+  const particleMaterial = new THREE.PointsMaterial({
+    size: 0.05,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+  
+  // Create the particle system
+  const energyFlowSystem = new THREE.Points(energyParticles, particleMaterial);
+  scene.add(energyFlowSystem);
+  
+  // Store for animation
+  window.energyFlowSystem = energyFlowSystem;
+}
+
 // Initialize the scene
 createStarfield();
 createPlanetarySystem();
-
-// Schedule the labels to appear
-createLabel('SKU', 0, 1.0, 5000); // First label after 5 seconds, positioned higher
-createLabel('Köpbar produkt', 4, 1.0, 7000); // Second label after 7 seconds, positioned higher
+createEnergyFlow();
 
 // Animation loop
 function animate() {
   requestAnimationFrame(animate);
+  
+  const currentTime = Date.now() * 0.001; // Current time in seconds
   
   // Rotate planets slightly
   objects.forEach((obj) => {
@@ -266,8 +359,124 @@ function animate() {
     obj.rotation.y += 0.005;
   });
   
+  // Animate energy flow particles
+  if (window.energyFlowSystem) {
+    const geometry = window.energyFlowSystem.geometry;
+    const positions = geometry.attributes.position.array;
+    const sizes = geometry.attributes.size.array;
+    const colors = geometry.attributes.color.array;
+    const phases = geometry.userData.phases;
+    const speeds = geometry.userData.speeds;
+    
+    // Get positions of all planets
+    const planetPositions = objects.map(planet => planet.position.x);
+    const firstPlanetX = planetPositions[0];
+    const lastPlanetX = planetPositions[planetPositions.length - 1];
+    const totalDistance = lastPlanetX - firstPlanetX;
+    
+    const particleCount = phases.length;
+    const flowDuration = 10.0; // Much slower flow for water-like appearance
+    
+    const elapsedTime = (Date.now() - geometry.userData.flowStartTime) / 1000;
+    
+    for (let i = 0; i < particleCount; i++) {
+      // Use the particle's individual speed
+      const particleSpeed = speeds[i];
+      
+      // Unique offset for each particle based on its index
+      const particleUniqueOffset = (i % 100) / 100;
+      
+      // Create continuous flow that wraps smoothly at the ends
+      const particleTime = (elapsedTime * particleSpeed * 0.1 + particleUniqueOffset) % 1.0;
+      
+      // Apply different easing to different particles for variation
+      let particleProgress;
+      if (i % 3 === 0) {
+        particleProgress = smootherstep(particleTime);
+      } else if (i % 3 === 1) {
+        particleProgress = smoothstep(particleTime);
+      } else {
+        particleProgress = particleTime;
+      }
+      
+      // Position along path with wrap-around
+      positions[i * 3] = firstPlanetX + (particleProgress * totalDistance);
+      
+      // Calculate which segment the particle is in (between which planets)
+      const segmentCount = planetPositions.length - 1;
+      const segmentLength = totalDistance / segmentCount;
+      const particleDistance = positions[i * 3] - firstPlanetX;
+      const segmentIndex = Math.min(Math.floor(particleDistance / segmentLength), segmentCount - 1);
+      
+      // Calculate the exact position between the two planets (0-1)
+      const segmentProgress = (particleDistance % segmentLength) / segmentLength;
+      
+      // Calculate planetary influence - more turbulence near planets, smoother flow in-between
+      // Peaks at both the planets and dips in the middle of the path
+      const distanceFromCenter = Math.abs(segmentProgress - 0.5) * 2; // 0 at center, 1 at planets
+      const planetInfluence = Math.pow(distanceFromCenter, 1.5); // More pronounced influence curve
+      
+      // Create multiple flowing wave patterns with different frequencies
+      const baseWave = Math.sin(currentTime * 2 + phases[i] + particleProgress * 10) * 0.05;
+      const detailWave1 = Math.sin(currentTime * 4 + phases[i] * 3 + particleProgress * 25) * 0.02;
+      const detailWave2 = Math.sin(currentTime * 7 + phases[i] * 2 + particleProgress * 40) * 0.01;
+      
+      // Combine waves with planetary influence - more pronounced for fire effect
+      positions[i * 3 + 1] = (baseWave + detailWave1 + detailWave2) * (1 + planetInfluence * 1.2);
+      
+      // Z-position variation for volume - creates depth in the flow
+      const zBaseWave = Math.cos(currentTime * 1.5 + phases[i] * 0.8 + particleProgress * 12) * 0.04;
+      const zDetailWave = Math.cos(currentTime * 5 + phases[i] * 1.2 + particleProgress * 30) * 0.02;
+      positions[i * 3 + 2] = (zBaseWave + zDetailWave) * (1 + planetInfluence * 0.7);
+      
+      // Size fluctuation - fire particles vary more in size
+      const sizeWave = Math.sin(currentTime * 3 + phases[i] + particleProgress * 15) * 0.3 + 0.7;
+      const flameFactor = Math.sin(currentTime * 6 + phases[i] * 2) * 0.2 + 1; // Additional flame pulsing
+      const baseSize = 0.01 + Math.pow(Math.random(), 1.5) * 0.025; // Base size with variation
+      sizes[i] = baseSize * (1 + planetInfluence * 0.8) * sizeWave * flameFactor;
+      
+      // Color variation - more intense and shifting colors for fire effect
+      const colorIntensity = 0.7 + planetInfluence * 0.3;
+      const timeVariation = Math.sin(currentTime * 2 + phases[i]) * 0.15 + 0.85;
+      
+      // Apply flame color variation based on position and time
+      const flamePhase = (Math.sin(currentTime * 3 + phases[i] + particleProgress * 5) + 1) / 2; // 0-1
+      
+      if (flamePhase < 0.33) {
+        // Yellow-orange core (brightest part)
+        colors[i * 3] = (0.9 + planetInfluence * 0.1) * colorIntensity * timeVariation; // R: bright red
+        colors[i * 3 + 1] = (0.7 - planetInfluence * 0.2) * colorIntensity * timeVariation; // G: high green for yellow
+        colors[i * 3 + 2] = (0.1 + planetInfluence * 0.05) * colorIntensity * timeVariation; // B: low blue
+      } else if (flamePhase < 0.66) {
+        // Orange-red mid zones
+        colors[i * 3] = (0.9 + planetInfluence * 0.1) * colorIntensity * timeVariation; // R: bright red
+        colors[i * 3 + 1] = (0.4 - planetInfluence * 0.1) * colorIntensity * timeVariation; // G: medium green for orange
+        colors[i * 3 + 2] = (0.05 + planetInfluence * 0.05) * colorIntensity * timeVariation; // B: very low blue
+      } else {
+        // Red edges (cooler part)
+        colors[i * 3] = (0.8 + planetInfluence * 0.1) * colorIntensity * timeVariation; // R: bright red
+        colors[i * 3 + 1] = (0.2 - planetInfluence * 0.05) * colorIntensity * timeVariation; // G: low green
+        colors[i * 3 + 2] = (0.0 + planetInfluence * 0.05) * colorIntensity * timeVariation; // B: almost no blue
+      }
+    }
+    
+    // Update geometry attributes
+    geometry.attributes.position.needsUpdate = true;
+    geometry.attributes.size.needsUpdate = true;
+    geometry.attributes.color.needsUpdate = true;
+  }
+  
   controls.update();
   renderer.render(scene, camera);
+}
+
+// Smooth step functions for fluid animation
+function smoothstep(x) {
+  return x * x * (3 - 2 * x);
+}
+
+function smootherstep(x) {
+  return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
 animate(); 
