@@ -252,6 +252,79 @@ window.addEventListener('resize', () => {
 createLabel('SKU', 0, 1.0, 5000); // First label after 5 seconds, positioned higher
 createLabel('köpbar produkt', 4, 1.0, 7000); // Second label after 7 seconds, positioned higher
 
+// Schedule the transition to circular arrangement after both labels appear
+setTimeout(transitionToCircle, 9000); // Start transition 2 seconds after last label
+
+// Variables to track animation state
+let isTransitioning = false;
+let transitionStartTime = 0;
+let transitionDuration = 3.0; // seconds
+let arrangementType = 'line'; // 'line' or 'circle'
+
+// Function to transition planets from line to circle
+function transitionToCircle() {
+  // Store original line positions for smooth transition
+  objects.forEach(planet => {
+    planet.userData = {
+      originalPosition: planet.position.clone()
+    };
+  });
+  
+  // Set animation state
+  isTransitioning = true;
+  transitionStartTime = Date.now();
+  arrangementType = 'circle';
+}
+
+// Function to calculate circle positions
+function updatePlanetPositions() {
+  if (!isTransitioning && arrangementType === 'line') return;
+  
+  const circleRadius = 2.5; // Radius of the circle
+  const centerX = 0;
+  const centerY = 0;
+  
+  if (isTransitioning) {
+    // Calculate transition progress (0 to 1)
+    const elapsedTime = (Date.now() - transitionStartTime) / 1000;
+    const progress = Math.min(elapsedTime / transitionDuration, 1.0);
+    
+    // Apply easing for smoother animation
+    const easedProgress = smootherstep(progress);
+    
+    // Update positions based on transition progress
+    objects.forEach((planet, index) => {
+      // Original line position
+      const originalPosition = planet.userData.originalPosition;
+      
+      // Target circle position
+      const angle = (index / objects.length) * Math.PI * 2;
+      const targetX = centerX + Math.cos(angle) * circleRadius;
+      const targetY = centerY + Math.sin(angle) * circleRadius;
+      
+      // Interpolate between line and circle positions
+      planet.position.x = originalPosition.x * (1 - easedProgress) + targetX * easedProgress;
+      planet.position.y = originalPosition.y * (1 - easedProgress) + targetY * easedProgress;
+    });
+    
+    // End transition when complete
+    if (progress >= 1.0) {
+      isTransitioning = false;
+    }
+  } else if (arrangementType === 'circle') {
+    // Maintain circle position with a slight rotation effect
+    const rotationSpeed = 0.05; // How fast the entire configuration rotates
+    const currentTime = Date.now() * 0.001;
+    const baseRotation = currentTime * rotationSpeed;
+    
+    objects.forEach((planet, index) => {
+      const angle = baseRotation + (index / objects.length) * Math.PI * 2;
+      planet.position.x = centerX + Math.cos(angle) * circleRadius;
+      planet.position.y = centerY + Math.sin(angle) * circleRadius;
+    });
+  }
+}
+
 // Create energy flow particles
 function createEnergyFlow() {
   // Create a particle system for the energy flow
@@ -353,7 +426,23 @@ function animate() {
   
   const currentTime = Date.now() * 0.001; // Current time in seconds
   
-  // Rotate planets slightly
+  // Update planet positions for circular arrangement
+  updatePlanetPositions();
+  
+  // Update speech bubble positions to follow their planets
+  if (labelGroup) {
+    const firstPlanet = objects[0];
+    labelGroup.position.x = firstPlanet.position.x;
+    labelGroup.position.y = firstPlanet.position.y + 1.0;
+  }
+  
+  if (window.secondLabel) {
+    const lastPlanet = objects[objects.length - 1];
+    window.secondLabel.position.x = lastPlanet.position.x;
+    window.secondLabel.position.y = lastPlanet.position.y + 1.0;
+  }
+  
+  // Rotate planets on their own axes
   objects.forEach((obj) => {
     obj.rotation.x += 0.005;
     obj.rotation.y += 0.005;
@@ -369,24 +458,16 @@ function animate() {
     const speeds = geometry.userData.speeds;
     
     // Get positions of all planets
-    const planetPositions = objects.map(planet => planet.position.x);
-    const firstPlanetX = planetPositions[0];
-    const lastPlanetX = planetPositions[planetPositions.length - 1];
-    const totalDistance = lastPlanetX - firstPlanetX;
+    const planetPositions = objects.map(planet => planet.position);
     
     const particleCount = phases.length;
-    const flowDuration = 10.0; // Much slower flow for water-like appearance
+    const flowDuration = 10.0;
     
     const elapsedTime = (Date.now() - geometry.userData.flowStartTime) / 1000;
     
     for (let i = 0; i < particleCount; i++) {
-      // Use the particle's individual speed
       const particleSpeed = speeds[i];
-      
-      // Unique offset for each particle based on its index
       const particleUniqueOffset = (i % 100) / 100;
-      
-      // Create continuous flow that wraps smoothly at the ends
       const particleTime = (elapsedTime * particleSpeed * 0.1 + particleUniqueOffset) % 1.0;
       
       // Apply different easing to different particles for variation
@@ -399,40 +480,110 @@ function animate() {
         particleProgress = particleTime;
       }
       
-      // Position along path with wrap-around
-      positions[i * 3] = firstPlanetX + (particleProgress * totalDistance);
-      
-      // Calculate which segment the particle is in (between which planets)
-      const segmentCount = planetPositions.length - 1;
-      const segmentLength = totalDistance / segmentCount;
-      const particleDistance = positions[i * 3] - firstPlanetX;
-      const segmentIndex = Math.min(Math.floor(particleDistance / segmentLength), segmentCount - 1);
-      
-      // Calculate the exact position between the two planets (0-1)
-      const segmentProgress = (particleDistance % segmentLength) / segmentLength;
-      
-      // Calculate planetary influence - more turbulence near planets, smoother flow in-between
-      // Peaks at both the planets and dips in the middle of the path
-      const distanceFromCenter = Math.abs(segmentProgress - 0.5) * 2; // 0 at center, 1 at planets
-      const planetInfluence = Math.pow(distanceFromCenter, 1.5); // More pronounced influence curve
-      
-      // Create multiple flowing wave patterns with different frequencies
-      const baseWave = Math.sin(currentTime * 2 + phases[i] + particleProgress * 10) * 0.05;
-      const detailWave1 = Math.sin(currentTime * 4 + phases[i] * 3 + particleProgress * 25) * 0.02;
-      const detailWave2 = Math.sin(currentTime * 7 + phases[i] * 2 + particleProgress * 40) * 0.01;
-      
-      // Combine waves with planetary influence - more pronounced for fire effect
-      positions[i * 3 + 1] = (baseWave + detailWave1 + detailWave2) * (1 + planetInfluence * 1.2);
-      
-      // Z-position variation for volume - creates depth in the flow
-      const zBaseWave = Math.cos(currentTime * 1.5 + phases[i] * 0.8 + particleProgress * 12) * 0.04;
-      const zDetailWave = Math.cos(currentTime * 5 + phases[i] * 1.2 + particleProgress * 30) * 0.02;
-      positions[i * 3 + 2] = (zBaseWave + zDetailWave) * (1 + planetInfluence * 0.7);
+      // Position particles based on current arrangement (line or circle)
+      if (arrangementType === 'line' && !isTransitioning) {
+        // Linear flow along x-axis as before
+        const firstPlanetX = planetPositions[0].x;
+        const lastPlanetX = planetPositions[planetPositions.length - 1].x;
+        const totalDistance = lastPlanetX - firstPlanetX;
+        
+        // Position along path with wrap-around
+        positions[i * 3] = firstPlanetX + (particleProgress * totalDistance);
+        
+        // Calculate which segment the particle is in (between which planets)
+        const segmentCount = planetPositions.length - 1;
+        const segmentLength = totalDistance / segmentCount;
+        const particleDistance = positions[i * 3] - firstPlanetX;
+        const segmentIndex = Math.min(Math.floor(particleDistance / segmentLength), segmentCount - 1);
+        
+        // Calculate the exact position between the two planets (0-1)
+        const segmentProgress = (particleDistance % segmentLength) / segmentLength;
+        
+        // Calculate planetary influence - more turbulence near planets, smoother flow in-between
+        const distanceFromCenter = Math.abs(segmentProgress - 0.5) * 2; // 0 at center, 1 at planets
+        const planetInfluence = Math.pow(distanceFromCenter, 1.5); // More pronounced influence curve
+        
+        // Wave patterns and vertical movement
+        const baseWave = Math.sin(currentTime * 2 + phases[i] + particleProgress * 10) * 0.05;
+        const detailWave1 = Math.sin(currentTime * 4 + phases[i] * 3 + particleProgress * 25) * 0.02;
+        const detailWave2 = Math.sin(currentTime * 7 + phases[i] * 2 + particleProgress * 40) * 0.01;
+        
+        positions[i * 3 + 1] = (baseWave + detailWave1 + detailWave2) * (1 + planetInfluence * 1.2);
+        
+        // Z-position variation
+        const zBaseWave = Math.cos(currentTime * 1.5 + phases[i] * 0.8 + particleProgress * 12) * 0.04;
+        const zDetailWave = Math.cos(currentTime * 5 + phases[i] * 1.2 + particleProgress * 30) * 0.02;
+        positions[i * 3 + 2] = (zBaseWave + zDetailWave) * (1 + planetInfluence * 0.7);
+      } else {
+        // Circular flow around planets
+        // Calculate position along the circle
+        const circleProgress = particleProgress;
+        const angle = circleProgress * Math.PI * 2;
+        const circleRadius = 2.5; // Match the planet circle radius
+        
+        // Add slight radial variation for fire effect
+        const radiusVar = 1.0 + (Math.sin(currentTime * 3 + phases[i] * 2) * 0.1);
+        
+        // Calculate base position on circle
+        positions[i * 3] = Math.cos(angle) * circleRadius * radiusVar;
+        positions[i * 3 + 1] = Math.sin(angle) * circleRadius * radiusVar;
+        
+        // Find the closest planet to calculate influence
+        let closestDistance = Number.MAX_VALUE;
+        let closestPlanetIndex = 0;
+        
+        for (let p = 0; p < planetPositions.length; p++) {
+          const dx = positions[i * 3] - planetPositions[p].x;
+          const dy = positions[i * 3 + 1] - planetPositions[p].y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestPlanetIndex = p;
+          }
+        }
+        
+        // Planetary influence based on proximity
+        let planetInfluence = 1.0 - Math.min(closestDistance / 0.8, 1.0);
+        planetInfluence = Math.pow(planetInfluence, 2); // Stronger influence near planets
+        
+        // Add z-variation for 3D effect
+        const zVar = (Math.sin(currentTime * 2 + phases[i] + angle * 3) * 0.05) * (1 + planetInfluence * 0.5);
+        positions[i * 3 + 2] = zVar;
+      }
       
       // Size fluctuation - fire particles vary more in size
       const sizeWave = Math.sin(currentTime * 3 + phases[i] + particleProgress * 15) * 0.3 + 0.7;
       const flameFactor = Math.sin(currentTime * 6 + phases[i] * 2) * 0.2 + 1; // Additional flame pulsing
       const baseSize = 0.01 + Math.pow(Math.random(), 1.5) * 0.025; // Base size with variation
+      
+      // Get planetary influence based on current arrangement
+      let planetInfluence = 0;
+      if (arrangementType === 'line' && !isTransitioning) {
+        // For linear arrangement - already calculated above
+        const firstPlanetX = planetPositions[0].x;
+        const particleDistanceFromFirst = positions[i * 3] - firstPlanetX;
+        const totalDistance = planetPositions[planetPositions.length - 1].x - firstPlanetX;
+        const segmentLength = totalDistance / (planetPositions.length - 1);
+        const segmentIndex = Math.min(Math.floor(particleDistanceFromFirst / segmentLength), planetPositions.length - 2);
+        const segmentProgress = (particleDistanceFromFirst % segmentLength) / segmentLength;
+        const distanceFromCenter = Math.abs(segmentProgress - 0.5) * 2;
+        planetInfluence = Math.pow(distanceFromCenter, 1.5);
+      } else {
+        // For circular arrangement - calculate based on closest planet
+        let minDist = Number.MAX_VALUE;
+        for (let p = 0; p < planetPositions.length; p++) {
+          const dx = positions[i * 3] - planetPositions[p].x;
+          const dy = positions[i * 3 + 1] - planetPositions[p].y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          minDist = Math.min(minDist, distance);
+        }
+        // Normalize distance (0 = at planet, 1 = far away)
+        const normalizedDist = Math.min(minDist / 0.7, 1.0);
+        planetInfluence = 1.0 - normalizedDist;
+        planetInfluence = Math.pow(planetInfluence, 2); // More pronounced effect
+      }
+      
       sizes[i] = baseSize * (1 + planetInfluence * 0.8) * sizeWave * flameFactor;
       
       // Color variation - more intense and shifting colors for fire effect
